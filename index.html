@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1f5f8b">
+<title>Machine Diary</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}[hidden]{display:none!important}
+/* Layout: a mobile maintenance logbook. Sticky toolbar, entries grouped by day, full-screen sheets for view / edit / download. */
+:root{
+  --bg:#f3f5f7; --surface:#ffffff; --surface-2:#e9edf1; --line:#d5dce3;
+  --fg:#16202a; --muted:#5b6876; --accent:#1f5f8b; --accent-fg:#ffffff;
+  --open:#b45309; --open-bg:#fdf1e3; --done:#2f7a4d; --done-bg:#e5f3ea;
+  --danger:#b42318; --danger-bg:#fdecea;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+  --r:10px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f151b; --surface:#17202a; --surface-2:#1f2a35; --line:#2c3a47;
+  --fg:#e6ebf0; --muted:#94a3b2; --accent:#5fa8dc; --accent-fg:#0b1620;
+  --open:#f0a54a; --open-bg:#3a2a16; --done:#6fca93; --done-bg:#163023;
+  --danger:#f47b70; --danger-bg:#3b1a17; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f151b; --surface:#17202a; --surface-2:#1f2a35; --line:#2c3a47;
+  --fg:#e6ebf0; --muted:#94a3b2; --accent:#5fa8dc; --accent-fg:#0b1620;
+  --open:#f0a54a; --open-bg:#3a2a16; --done:#6fca93; --done-bg:#163023;
+  --danger:#f47b70; --danger-bg:#3b1a17; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px;line-height:1.5}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--surface)}
+body.lock{overflow:hidden}
+.wrap{max-width:760px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+header.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--surface);border-bottom:1px solid var(--line)}
+.bar .wrap{display:flex;align-items:center;gap:10px;padding-block:12px}
+.brand{flex:1;min-width:0}
+.brand h1{margin:0;font-size:19px;font-weight:700;letter-spacing:-.01em}
+.brand p{margin:0;font-size:12.5px;color:var(--muted)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:9px 14px;font-weight:600;font-size:14px;min-height:42px}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
+.btn.danger{color:var(--danger);border-color:var(--danger);background:transparent}
+.btn.danger.solid{background:var(--danger);color:#fff}
+.btn.ghost{border-color:transparent;background:transparent}
+.btn:disabled{opacity:.5;cursor:default}
+.btn svg{width:18px;height:18px;flex:none}
+
+main{padding-block:16px 96px;display:grid;gap:16px}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:10px 12px}
+.stat b{display:block;font-family:var(--mono);font-size:22px;font-variant-numeric:tabular-nums;line-height:1.2}
+.stat span{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.stat.open b{color:var(--open)}
+
+.filters{display:grid;gap:8px}
+.filters .row{display:flex;gap:8px;flex-wrap:wrap}
+.field{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-height:44px;width:100%}
+.filters .row > *{flex:1 1 140px;min-width:0}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:6px 12px;font-size:13px;font-weight:500}
+.chip[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+
+.day h2{margin:0 0 8px;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+.list{display:grid;gap:8px}
+.card{display:grid;grid-template-columns:1fr auto;gap:4px 12px;text-align:left;width:100%;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px}
+.card:hover{border-color:var(--accent)}
+.card .top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.mno{font-family:var(--mono);font-weight:600;font-size:14px;background:var(--surface-2);border-radius:6px;padding:2px 8px}
+.pill{font-size:11.5px;font-weight:600;border-radius:999px;padding:2px 9px;text-transform:uppercase;letter-spacing:.05em}
+.pill.open{background:var(--open-bg);color:var(--open)}
+.pill.done{background:var(--done-bg);color:var(--done)}
+.card .issue{grid-column:1/2;min-width:0;color:var(--fg);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.card .thumb{grid-row:1/3;grid-column:2;width:56px;height:56px;border-radius:8px;object-fit:cover;background:var(--surface-2)}
+.card .meta{grid-column:1/-1;font-size:12.5px;color:var(--muted)}
+
+.empty{background:var(--surface);border:1px dashed var(--line);border-radius:var(--r);padding:28px 20px;text-align:center;display:grid;gap:10px;justify-items:center}
+.empty h3{margin:0;font-size:17px}
+.empty p{margin:0;color:var(--muted);max-width:42ch}
+.notice{background:var(--open-bg);color:var(--fg);border-radius:var(--r);padding:12px 14px;font-size:14px}
+
+.fab{position:fixed;right:calc(16px + env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:6;border-radius:999px;padding:14px 20px;box-shadow:0 6px 20px rgba(0,0,0,.18)}
+
+/* sheets */
+.sheet{position:fixed;inset:0;z-index:20;background:var(--bg);overflow-y:auto;-webkit-overflow-scrolling:touch}
+.sheet header{position:sticky;top:0;z-index:2;background:var(--surface);border-bottom:1px solid var(--line);padding-top:env(safe-area-inset-top,0px)}
+.sheet header .wrap{display:flex;align-items:center;gap:8px;padding-block:10px}
+.sheet header h2{flex:1;margin:0;font-size:17px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sheet .body{padding-block:16px calc(32px + env(safe-area-inset-bottom,0px));display:grid;gap:14px}
+
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+label.lbl{display:grid;gap:4px;font-size:13px;font-weight:600;color:var(--muted)}
+.sec{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px;display:grid;gap:8px}
+.sec h3{margin:0;font-size:14px;font-weight:700;display:flex;align-items:center;gap:8px}
+.sec h3 .k{font-family:var(--mono);font-size:11px;color:var(--muted);font-weight:500}
+textarea.field{min-height:84px;resize:vertical}
+.photos{display:flex;gap:8px;flex-wrap:wrap}
+.ph{position:relative;width:76px;height:76px;border-radius:8px;overflow:hidden;background:var(--surface-2);border:0;padding:0}
+.ph img{width:100%;height:100%;object-fit:cover;display:block}
+.ph .x{position:absolute;top:3px;right:3px;width:24px;height:24px;border-radius:50%;border:0;background:rgba(0,0,0,.6);color:#fff;font-size:15px;line-height:24px;padding:0}
+.ph.busy::after{content:"Uploading";position:absolute;inset:0;display:grid;place-items:center;font-size:11px;background:rgba(0,0,0,.45);color:#fff}
+.addph{width:76px;height:76px;border-radius:8px;border:1.5px dashed var(--line);background:transparent;display:grid;place-items:center;align-content:center;gap:2px;font-size:11.5px;color:var(--muted);font-weight:600}
+.addph svg{width:22px;height:22px}
+.seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;min-height:44px}
+.seg button{flex:1;border:0;background:var(--surface);font-weight:600;font-size:14px}
+.seg button[aria-pressed="true"].o{background:var(--open-bg);color:var(--open)}
+.seg button[aria-pressed="true"].d{background:var(--done-bg);color:var(--done)}
+
+.view-sec{display:grid;gap:6px}
+.view-sec p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.view-sec .none{color:var(--muted);font-style:italic}
+.view-photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px}
+.view-photos button{border:0;padding:0;border-radius:8px;overflow:hidden;aspect-ratio:1;background:var(--surface-2);max-width:100%}
+.view-photos img{width:100%;height:100%;object-fit:cover;display:block}
+.vhead{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.vhead .mno{font-size:18px}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+.actions .btn{flex:1 1 120px}
+.confirm{background:var(--danger-bg);border-radius:var(--r);padding:12px;display:grid;gap:10px}
+
+.dl-opt{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px;width:100%}
+.dl-opt:hover{border-color:var(--accent)}
+.dl-opt .ic{grid-row:1/3;width:40px;height:40px;border-radius:8px;background:var(--surface-2);display:grid;place-items:center;font-family:var(--mono);font-size:11px;font-weight:600}
+.dl-opt b{font-size:15px}
+.dl-opt span{font-size:13px;color:var(--muted)}
+
+.lightbox{position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.92);display:grid;place-items:center;padding:calc(16px + env(safe-area-inset-top,0px)) 12px calc(16px + env(safe-area-inset-bottom,0px))}
+.lightbox img{max-width:100%;max-height:100%;object-fit:contain}
+.lightbox button{position:absolute;top:calc(12px + env(safe-area-inset-top,0px));right:calc(12px + env(safe-area-inset-right,0px));background:rgba(255,255,255,.15);color:#fff;border:0;border-radius:999px;padding:8px 14px;font-weight:600}
+
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom,0px));z-index:50;background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:8px;font-size:14px;font-weight:500;max-width:calc(100% - 32px)}
+@media (max-width:420px){.grid2{grid-template-columns:1fr}.stat b{font-size:19px}}
+@media (prefers-reduced-motion:no-preference){.sheet{animation:up .18s ease-out}@keyframes up{from{transform:translateY(16px);opacity:.6}}}
+</style>
+</head><body>
+
+<header class="bar"><div class="wrap">
+  <div class="brand"><h1>Machine Diary</h1><p id="sub">Daily troubleshooting log</p></div>
+  <button class="btn" id="dlBtn" type="button" aria-label="Download">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 4v11m0 0 4.5-4.5M12 15l-4.5-4.5M5 19h14"/></svg>Download</button>
+</div></header>
+
+<main class="wrap">
+  <div id="notice" class="notice" hidden></div>
+  <section class="stats" aria-label="Summary">
+    <div class="stat"><b id="sEntries">0</b><span>Entries</span></div>
+    <div class="stat"><b id="sMachines">0</b><span>Machines</span></div>
+    <div class="stat open"><b id="sOpen">0</b><span>Open issues</span></div>
+  </section>
+  <section class="filters" aria-label="Filter">
+    <div class="row">
+      <input id="q" class="field" type="search" placeholder="Search issue, action, parts…" autocomplete="off">
+      <select id="fMachine" class="field" aria-label="Machine"><option value="">All machines</option></select>
+    </div>
+    <div class="chips" role="group" aria-label="Status">
+      <button class="chip" data-st="" aria-pressed="true" type="button">All</button>
+      <button class="chip" data-st="open" aria-pressed="false" type="button">Open</button>
+      <button class="chip" data-st="done" aria-pressed="false" type="button">Closed</button>
+    </div>
+  </section>
+  <section id="list" class="list" aria-live="polite">
+    <div class="empty"><h3>Loading your diary…</h3></div>
+  </section>
+</main>
+
+<button class="btn primary fab" id="newBtn" type="button">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>New entry</button>
+
+<!-- form sheet -->
+<div class="sheet" id="formSheet" hidden role="dialog" aria-modal="true" aria-labelledby="formTitle">
+  <header><div class="wrap">
+    <button class="btn ghost" type="button" data-close="formSheet">Cancel</button>
+    <h2 id="formTitle">New entry</h2>
+    <button class="btn primary" type="button" id="saveBtn">Save</button>
+  </div></header>
+  <form class="wrap body" id="form" novalidate>
+    <div class="grid2">
+      <label class="lbl">Machine no.
+        <input class="field" id="fMno" list="mList" placeholder="e.g. M-07" autocomplete="off" required>
+        <datalist id="mList"></datalist>
+      </label>
+      <label class="lbl">Date
+        <input class="field" id="fDate" type="date" required>
+      </label>
+    </div>
+    <div class="lbl">Status
+      <div class="seg" role="group" aria-label="Status">
+        <button type="button" class="o" data-v="open" aria-pressed="true">Open</button>
+        <button type="button" class="d" data-v="done" aria-pressed="false">Closed</button>
+      </div>
+    </div>
+    <div id="secs" style="display:grid;gap:14px"></div>
+    <p id="formErr" class="notice" hidden></p>
+  </form>
+</div>
+
+<!-- view sheet -->
+<div class="sheet" id="viewSheet" hidden role="dialog" aria-modal="true" aria-labelledby="viewTitle">
+  <header><div class="wrap">
+    <button class="btn ghost" type="button" data-close="viewSheet">Back</button>
+    <h2 id="viewTitle">Entry</h2>
+    <button class="btn" type="button" id="editBtn">Edit</button>
+  </div></header>
+  <div class="wrap body" id="viewBody"></div>
+</div>
+
+<!-- download sheet -->
+<div class="sheet" id="dlSheet" hidden role="dialog" aria-modal="true" aria-labelledby="dlTitle">
+  <header><div class="wrap">
+    <button class="btn ghost" type="button" data-close="dlSheet">Close</button>
+    <h2 id="dlTitle">Download</h2>
+  </div></header>
+  <div class="wrap body">
+    <p id="dlScope" style="margin:0;color:var(--muted)"></p>
+    <button class="dl-opt" type="button" id="dlPdf"><div class="ic">PDF</div><b>Report with photos</b><span>Every entry with all sections and photos. Opens on any phone.</span></button>
+    <button class="dl-opt" type="button" id="dlCsv"><div class="ic">CSV</div><b>Spreadsheet</b><span>One row per entry, text only. Opens in Excel.</span></button>
+    <button class="dl-opt" type="button" id="bkBtn"><div class="ic">BAK</div><b>Backup file</b><span>Everything, including photos. Use Restore to bring it back on any phone.</span></button>
+    <button class="dl-opt" type="button" id="rsBtn"><div class="ic">RST</div><b>Restore from backup</b><span>Load a backup file. Entries are added back; nothing is erased.</span></button>
+    <input type="file" id="rsFile" accept=".json,application/json" hidden>
+    <p id="dlStatus" class="notice" hidden></p>
+    <div class="sec" style="margin-top:12px;border-color:var(--danger)">
+      <h3 style="color:var(--danger)">Delete entries</h3>
+      <p id="delScope" style="margin:0;color:var(--muted);font-size:14px"></p>
+      <button class="btn danger" type="button" id="delAllBtn">Delete entries…</button>
+      <div id="delConfirm" class="confirm" hidden>
+        <b id="delMsg"></b>
+        <span>Download a backup first. This cannot be undone. Type <b>DELETE</b> to confirm.</span>
+        <input class="field" id="delType" autocomplete="off" autocapitalize="characters" placeholder="DELETE" aria-label="Type DELETE to confirm">
+        <div class="actions"><button class="btn" type="button" id="delNo">Cancel</button><button class="btn danger solid" type="button" id="delYes" disabled>Delete permanently</button></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="lightbox" id="lightbox" hidden><img id="lbImg" alt=""><button type="button" id="lbClose">Close</button></div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+const SECTIONS=[
+  {k:"issue",t:"Issue",ph:"What is the problem? Symptom, error code, alarm…"},
+  {k:"action",t:"Action",ph:"What did you do? Parts replaced, adjustments…"},
+  {k:"investigation",t:"Investigation",ph:"What did you check and find?"},
+  {k:"suggestion",t:"Suggestion",ph:"Recommendation, follow-up, spare parts to order…"},
+  {k:"conclusion",t:"Conclusion",ph:"Root cause and final result."}
+];
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const today=()=>{const d=new Date();return new Date(d-d.getTimezoneOffset()*6e4).toISOString().slice(0,10)};
+const URLS={};const imgUrl=id=>URLS[id]||"";
+const fmtDay=d=>{try{return new Date(d+"T00:00:00").toLocaleDateString(undefined,{weekday:"short",day:"numeric",month:"short",year:"numeric"})}catch(e){return d}};
+
+let db=null,assets=null,downloads=null,col=null;
+let entries=[],filt={q:"",m:"",st:""},current=null,draft=null,pendingUploads=0;
+
+function toast(msg){const t=$("#toast");t.textContent=msg;t.hidden=false;clearTimeout(toast.h);toast.h=setTimeout(()=>t.hidden=true,2600)}
+function openSheet(id){$("#"+id).hidden=false;document.body.classList.add("lock");$("#"+id).scrollTop=0}
+function closeSheet(id){$("#"+id).hidden=true;if(!document.querySelector(".sheet:not([hidden])"))document.body.classList.remove("lock")}
+document.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>closeSheet(b.dataset.close));
+function notice(msg){const n=$("#notice");n.textContent=msg;n.hidden=!msg}
+
+/* ---------- list ---------- */
+function photoCount(e){return SECTIONS.reduce((n,s)=>n+((e.photos&&e.photos[s.k])||[]).length,0)}
+function firstPhoto(e){for(const s of SECTIONS){const p=(e.photos&&e.photos[s.k])||[];if(p.length)return p[0]}return null}
+function filtered(){
+  const q=filt.q.trim().toLowerCase();
+  return entries.filter(e=>(!filt.m||e.machine===filt.m)&&(!filt.st||e.status===filt.st)&&
+    (!q||[e.machine,...SECTIONS.map(s=>e[s.k])].join(" ").toLowerCase().includes(q)));
+}
+function render(){
+  const machines=[...new Set(entries.map(e=>e.machine).filter(Boolean))].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
+  $("#sEntries").textContent=entries.length;
+  $("#sMachines").textContent=machines.length;
+  $("#sOpen").textContent=entries.filter(e=>e.status==="open").length;
+  const sel=$("#fMachine"),cur=filt.m;
+  sel.innerHTML='<option value="">All machines</option>'+machines.map(m=>`<option${m===cur?" selected":""}>${esc(m)}</option>`).join("");
+  $("#mList").innerHTML=machines.map(m=>`<option value="${esc(m)}">`).join("");
+  const list=$("#list"),rows=filtered();
+  if(!entries.length){
+    list.innerHTML=`<div class="empty"><h3>No entries yet</h3><p>Tap <b>New entry</b> after each job. Record the machine no., issue, action, investigation, suggestion and conclusion, with photos for each.</p><button class="btn primary" type="button" onclick="openForm()">Add first entry</button></div>`;return}
+  if(!rows.length){list.innerHTML=`<div class="empty"><h3>No matching entries</h3><p>Try another machine, status or search word.</p></div>`;return}
+  const groups={};rows.forEach(e=>(groups[e.date]=groups[e.date]||[]).push(e));
+  list.innerHTML=Object.keys(groups).sort().reverse().map(d=>`<section class="day"><h2>${esc(fmtDay(d))}</h2><div class="list">${
+    groups[d].map(e=>{const p=firstPhoto(e),n=photoCount(e);return `<button class="card" type="button" data-id="${esc(e.id)}">
+      <div class="top"><span class="mno">${esc(e.machine)}</span><span class="pill ${e.status==="done"?"done":"open"}">${e.status==="done"?"Closed":"Open"}</span></div>
+      ${p?`<img class="thumb" src="${imgUrl(p)}" alt="" loading="lazy">`:""}
+      <div class="issue">${esc(e.issue||"No issue described")}</div>
+      <div class="meta">${n?n+" photo"+(n>1?"s":""):"No photos"}${e.conclusion?" · Concluded":""}</div></button>`}).join("")
+  }</div></section>`).join("");
+  list.querySelectorAll(".card").forEach(c=>c.onclick=()=>openView(c.dataset.id));
+}
+$("#q").oninput=e=>{filt.q=e.target.value;render()};
+$("#fMachine").onchange=e=>{filt.m=e.target.value;render()};
+document.querySelectorAll(".chip").forEach(c=>c.onclick=()=>{filt.st=c.dataset.st;document.querySelectorAll(".chip").forEach(x=>x.setAttribute("aria-pressed",x===c));render()});
+
+/* ---------- view ---------- */
+function openView(id){
+  const e=entries.find(x=>x.id===id);if(!e)return;current=e;
+  $("#viewTitle").textContent=e.machine+" · "+fmtDay(e.date);
+  $("#viewBody").innerHTML=`<div class="vhead"><span class="mno">${esc(e.machine)}</span><span class="pill ${e.status==="done"?"done":"open"}">${e.status==="done"?"Closed":"Open"}</span><span style="color:var(--muted);font-size:14px">${esc(fmtDay(e.date))}</span></div>`+
+    SECTIONS.map(s=>{const ph=(e.photos&&e.photos[s.k])||[];return `<div class="sec view-sec"><h3>${s.t}</h3>${e[s.k]?`<p>${esc(e[s.k])}</p>`:'<p class="none">Not filled in</p>'}${ph.length?`<div class="view-photos">${ph.map(p=>`<button type="button" data-img="${esc(p)}" aria-label="Open photo"><img src="${imgUrl(p)}" alt="${s.t} photo" loading="lazy"></button>`).join("")}</div>`:""}</div>`}).join("")+
+    `<div class="actions"><button class="btn" type="button" id="vDl">Download this entry (PDF)</button><button class="btn danger" type="button" id="vDel">Delete</button></div><div id="vConfirm"></div>`;
+  $("#viewBody").querySelectorAll("[data-img]").forEach(b=>b.onclick=()=>{$("#lbImg").src=imgUrl(b.dataset.img);$("#lightbox").hidden=false});
+  $("#vDl").onclick=()=>downloadPdf([e],`${e.machine}-${e.date}`);
+  $("#vDel").onclick=()=>{$("#vConfirm").innerHTML=`<div class="confirm"><b>Delete this entry and its photos?</b><span>This cannot be undone.</span><div class="actions"><button class="btn" type="button" id="cNo">Keep</button><button class="btn danger solid" type="button" id="cYes">Delete</button></div></div>`;
+    $("#cNo").onclick=()=>$("#vConfirm").innerHTML="";
+    $("#cYes").onclick=async()=>{try{await col.doc(e.id).delete();for(const s of SECTIONS)for(const p of ((e.photos&&e.photos[s.k])||[]))assets&&assets.delete(p).catch(()=>{});closeSheet("viewSheet");toast("Entry deleted")}catch(err){toast("Could not delete: "+(err.message||err.code))}}};
+  openSheet("viewSheet");
+}
+$("#lbClose").onclick=()=>$("#lightbox").hidden=true;
+$("#lightbox").onclick=e=>{if(e.target.id==="lightbox")$("#lightbox").hidden=true};
+$("#editBtn").onclick=()=>{closeSheet("viewSheet");openForm(current)};
+
+/* ---------- form ---------- */
+function openForm(e){
+  if(!db){toast("Saving is not available here");return}
+  draft=e?{...e,photos:JSON.parse(JSON.stringify(e.photos||{})),_orig:e}:{id:null,machine:filt.m||"",date:today(),status:"open",photos:{}};
+  SECTIONS.forEach(s=>{draft[s.k]=draft[s.k]||"";draft.photos[s.k]=draft.photos[s.k]||[]});
+  $("#formTitle").textContent=e?"Edit entry":"New entry";
+  $("#fMno").value=draft.machine;$("#fDate").value=draft.date;setStatus(draft.status);
+  $("#secs").innerHTML=SECTIONS.map((s,i)=>`<div class="sec"><h3>${s.t}</h3>
+    <textarea class="field" id="t_${s.k}" placeholder="${esc(s.ph)}" aria-label="${s.t}">${esc(draft[s.k])}</textarea>
+    <div class="photos" id="p_${s.k}"></div>
+    <input type="file" accept="image/*" multiple hidden id="f_${s.k}"></div>`).join("");
+  SECTIONS.forEach(s=>{drawPhotos(s.k);$("#f_"+s.k).onchange=ev=>{addFiles(s.k,[...ev.target.files]);ev.target.value=""}});
+  $("#formErr").hidden=true;
+  openSheet("formSheet");
+}
+function setStatus(v){draft&&(draft.status=v);document.querySelectorAll(".seg button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.v===v))}
+document.querySelectorAll(".seg button").forEach(b=>b.onclick=()=>setStatus(b.dataset.v));
+function drawPhotos(k){
+  const box=$("#p_"+k);
+  box.innerHTML=draft.photos[k].map((p,i)=>typeof p==="string"
+    ?`<div class="ph"><img src="${imgUrl(p)}" alt=""><button class="x" type="button" data-i="${i}" aria-label="Remove photo">×</button></div>`
+    :`<div class="ph busy"><img src="${p.preview}" alt=""></div>`).join("")+
+    (assets?`<button class="addph" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>Add photo</button>`:"");
+  box.querySelectorAll(".x").forEach(b=>b.onclick=()=>{draft.photos[k].splice(+b.dataset.i,1);drawPhotos(k)});
+  const a=box.querySelector(".addph");if(a)a.onclick=()=>$("#f_"+k).click();
+}
+function shrink(file){return new Promise((res,rej)=>{const u=URL.createObjectURL(file),im=new Image();im.onload=()=>{const M=1600,sc=Math.min(1,M/Math.max(im.naturalWidth,im.naturalHeight)),c=document.createElement("canvas");c.width=Math.round(im.naturalWidth*sc);c.height=Math.round(im.naturalHeight*sc);c.getContext("2d").drawImage(im,0,0,c.width,c.height);URL.revokeObjectURL(u);c.toBlob(b=>b?res({blob:b,preview:c.toDataURL("image/jpeg",.5)}):rej(new Error("resize")),"image/jpeg",.82)};im.onerror=()=>{URL.revokeObjectURL(u);rej(new Error("This file is not a readable image"))};im.src=u})}
+async function addFiles(k,files){
+  for(const f of files){
+    const slot={preview:""};
+    try{const r=await shrink(f);slot.preview=r.preview;draft.photos[k].push(slot);drawPhotos(k);pendingUploads++;
+      const up=await assets.upload(r.blob);const i=draft.photos[k].indexOf(slot);if(i>-1)draft.photos[k][i]=up.id;
+    }catch(err){const i=draft.photos[k].indexOf(slot);if(i>-1)draft.photos[k].splice(i,1);toast("Photo not added: "+(err.message||err.code||"upload failed"))}
+    finally{if(slot.preview)pendingUploads=Math.max(0,pendingUploads-1);if(!$("#formSheet").hidden)drawPhotos(k)}
+  }
+}
+$("#saveBtn").onclick=async()=>{
+  const err=$("#formErr");
+  draft.machine=$("#fMno").value.trim();draft.date=$("#fDate").value;
+  SECTIONS.forEach(s=>draft[s.k]=$("#t_"+s.k).value.trim());
+  if(!draft.machine||!draft.date){err.textContent="Enter the machine no. and date before saving.";err.hidden=false;return}
+  if(pendingUploads){err.textContent="Photos are still uploading. Wait a moment, then save.";err.hidden=false;return}
+  const photos={};SECTIONS.forEach(s=>photos[s.k]=draft.photos[s.k].filter(p=>typeof p==="string"));
+  const body={machine:draft.machine,date:draft.date,status:draft.status,photos,updatedAt:Date.now()};
+  SECTIONS.forEach(s=>body[s.k]=draft[s.k]);
+  $("#saveBtn").disabled=true;
+  try{
+    if(draft.id){await col.doc(draft.id).set({...body,createdAt:draft.createdAt||Date.now()});
+      const keep=new Set(Object.values(photos).flat());
+      Object.values(draft._orig.photos||{}).flat().forEach(p=>{if(!keep.has(p)&&assets)assets.delete(p).catch(()=>{})});
+    }else{await col.doc().set({...body,createdAt:Date.now()})}
+    closeSheet("formSheet");toast("Saved");
+  }catch(e2){err.textContent="Not saved: "+(e2.message||e2.code)+". Check your connection and try again.";err.hidden=false}
+  finally{$("#saveBtn").disabled=false}
+};
+$("#newBtn").onclick=()=>openForm();
+
+/* ---------- download ---------- */
+$("#dlBtn").onclick=()=>{
+  const n=filtered().length;
+  $("#dlScope").textContent=(filt.m||filt.st||filt.q?"Current filter: ":"All entries: ")+n+" entr"+(n===1?"y":"ies")+(filt.m?" for "+filt.m:"")+".";
+  $("#dlStatus").hidden=true;
+  const f=filt.m||filt.st||filt.q;
+  $("#delScope").textContent=f?"Deletes only the "+n+" entr"+(n===1?"y":"ies")+" in the current filter, with their photos. Clear the filter to delete everything.":"Deletes all "+n+" entr"+(n===1?"y":"ies")+" and their photos.";
+  $("#delAllBtn").disabled=!n;$("#delConfirm").hidden=true;$("#delAllBtn").hidden=false;
+  openSheet("dlSheet");
+};
+$("#delAllBtn").onclick=()=>{const n=filtered().length;$("#delMsg").textContent="Delete "+n+" entr"+(n===1?"y":"ies")+" and all their photos?";$("#delType").value="";$("#delYes").disabled=true;$("#delConfirm").hidden=false;$("#delAllBtn").hidden=true;$("#delType").focus()};
+$("#delNo").onclick=()=>{$("#delConfirm").hidden=true;$("#delAllBtn").hidden=false};
+$("#delType").oninput=e=>{$("#delYes").disabled=e.target.value.trim().toUpperCase()!=="DELETE"};
+$("#delYes").onclick=async()=>{
+  const rows=filtered();$("#delYes").disabled=true;$("#delYes").textContent="Deleting…";let ok=0;
+  for(const e of rows){try{await col.doc(e.id).delete();ok++;for(const s of SECTIONS)for(const p of ((e.photos&&e.photos[s.k])||[]))assets&&assets.delete(p).catch(()=>{})}catch(err){}}
+  $("#delYes").textContent="Delete permanently";closeSheet("dlSheet");
+  toast(ok===rows.length?"Deleted "+ok+" entr"+(ok===1?"y":"ies"):"Deleted "+ok+" of "+rows.length+". Try again for the rest.");
+};
+function dlStatus(msg){const s=$("#dlStatus");s.textContent=msg;s.hidden=!msg}
+async function save(filename,data){
+  if(!downloads){dlStatus("Downloads are not available in this view.");return false}
+  try{await downloads.save({filename,data});return true}
+  catch(e){if(e&&e.code==="declined")return false;dlStatus(e&&e.code==="rate_limited"?"A download prompt is already open.":"Download failed ("+(e&&e.code||"error")+").");return false}
+}
+$("#dlCsv").onclick=async()=>{
+  const rows=sortForExport(filtered());if(!rows.length){dlStatus("Nothing to download yet.");return}
+  const q=v=>'"'+String(v??"").replace(/"/g,'""')+'"';
+  const head=["Date","Machine no.","Status",...SECTIONS.map(s=>s.t),"Photos"];
+  const csv="﻿"+[head.map(q).join(","),...rows.map(e=>[e.date,e.machine,e.status==="done"?"Closed":"Open",...SECTIONS.map(s=>e[s.k]),photoCount(e)].map(q).join(","))].join("\r\n");
+  if(await save(`machine-diary-${today()}.csv`,csv)){closeSheet("dlSheet");toast("Spreadsheet saved")}
+};
+$("#dlPdf").onclick=()=>{const rows=filtered();if(!rows.length){dlStatus("Nothing to download yet.");return}downloadPdf(rows,"machine-diary-"+(filt.m?filt.m+"-":"")+today())};
+function sortForExport(rows){return [...rows].sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:(a.machine||"").localeCompare(b.machine||"",undefined,{numeric:true}))}
+async function loadImg(id){
+  try{const r=await fetch(imgUrl(id));if(!r.ok)return null;const b=await r.blob();
+    const url=await new Promise(res=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.readAsDataURL(b)});
+    const dims=await new Promise(res=>{const i=new Image();i.onload=()=>res({w:i.naturalWidth,h:i.naturalHeight});i.onerror=()=>res(null);i.src=url});
+    return dims?{url,...dims}:null}catch(e){return null}
+}
+async function downloadPdf(rows,name){
+  if(!window.jspdf){toast("PDF tool did not load. Check your connection.");dlStatus("PDF tool did not load. Check your connection.");return}
+  rows=sortForExport(rows);toast("Preparing PDF…");dlStatus("Preparing PDF with photos…");
+  const {jsPDF}=window.jspdf,doc=new jsPDF({unit:"mm",format:"a4"});
+  const W=210,H=297,M=14,CW=W-2*M;let y=M;
+  const need=h=>{if(y+h>H-M){doc.addPage();y=M}};
+  doc.setFont("helvetica","bold");doc.setFontSize(18);doc.text("Machine Diary",M,y+6);
+  doc.setFont("helvetica","normal");doc.setFontSize(10);doc.setTextColor(90);
+  doc.text(`${rows.length} entr${rows.length===1?"y":"ies"} · exported ${today()}`,M,y+12);doc.setTextColor(0);y+=20;
+  for(const e of rows){
+    need(24);
+    doc.setFillColor(31,95,139);doc.rect(M,y,CW,9,"F");doc.setTextColor(255);doc.setFont("helvetica","bold");doc.setFontSize(11.5);
+    doc.text(`${e.machine}   ${e.date}`,M+3,y+6);doc.text(e.status==="done"?"CLOSED":"OPEN",W-M-3,y+6,{align:"right"});
+    doc.setTextColor(0);y+=13;
+    for(const s of SECTIONS){
+      const txt=e[s.k]||"",ph=(e.photos&&e.photos[s.k])||[];
+      if(!txt&&!ph.length)continue;
+      need(12);doc.setFont("helvetica","bold");doc.setFontSize(10);doc.setTextColor(31,95,139);doc.text(s.t.toUpperCase(),M,y);doc.setTextColor(0);y+=5;
+      if(txt){doc.setFont("helvetica","normal");doc.setFontSize(10.5);
+        for(const line of doc.splitTextToSize(txt,CW)){need(5.5);doc.text(line,M,y);y+=5}y+=1.5}
+      if(ph.length){const imgs=(await Promise.all(ph.map(loadImg))).filter(Boolean),gap=4,cw=(CW-gap)/2;
+        for(let i=0;i<imgs.length;i+=2){const pair=imgs.slice(i,i+2);
+          const hs=pair.map(im=>Math.min(cw*im.h/im.w,90));const rh=Math.max(...hs);need(rh+3);
+          pair.forEach((im,j)=>{const h=hs[j],w=h*im.w/im.h;try{doc.addImage(im.url,"JPEG",M+j*(cw+gap),y,w,h)}catch(x){}});y+=rh+3}
+        if(imgs.length<ph.length){doc.setFontSize(9);doc.setTextColor(120);need(5);doc.text(`${ph.length-imgs.length} photo(s) could not be included.`,M,y);doc.setTextColor(0);y+=5}}
+      y+=2;
+    }
+    y+=6;
+  }
+  const pages=doc.getNumberOfPages();for(let p=1;p<=pages;p++){doc.setPage(p);doc.setFontSize(8.5);doc.setTextColor(130);doc.text(`Page ${p} of ${pages}`,W-M,H-7,{align:"right"})}
+  const blob=doc.output("blob");dlStatus("");
+  if(await save(name.replace(/[^\w.-]+/g,"-")+".pdf",blob)){closeSheet("dlSheet");toast("PDF saved")}
+}
+
+/* ---------- local storage (this phone's browser) ---------- */
+const IDB=(()=>{let dbp;
+  const open=()=>dbp||(dbp=new Promise((res,rej)=>{const r=indexedDB.open("machine-diary",1);r.onupgradeneeded=()=>{r.result.createObjectStore("entries",{keyPath:"id"});r.result.createObjectStore("photos")};r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)}));
+  const tx=async(store,mode,fn)=>{const d=await open();return new Promise((res,rej)=>{const t=d.transaction(store,mode),q=fn(t.objectStore(store));let out;if(q)q.onsuccess=()=>out=q.result;t.oncomplete=()=>res(out);t.onerror=()=>rej(t.error);t.onabort=()=>rej(t.error)})};
+  return{all:s=>tx(s,"readonly",st=>st.getAll()),keys:s=>tx(s,"readonly",st=>st.getAllKeys()),get:(s,k)=>tx(s,"readonly",st=>st.get(k)),
+    put:(s,v,k)=>tx(s,"readwrite",st=>k===undefined?st.put(v):st.put(v,k)),del:(s,k)=>tx(s,"readwrite",st=>st.delete(k))}})();
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+const listeners=[];
+async function emit(){const rows=await IDB.all("entries");const snap={docs:rows.map(r=>({id:r.id,data:()=>{const{id,...x}=r;return x}}))};listeners.forEach(f=>f(snap))}
+const localDb={collection:()=>({doc:id=>{id=id||uid();return{set:async d=>{await IDB.put("entries",{...d,id});await emit()},delete:async()=>{await IDB.del("entries",id);await emit()}}},onSnapshot:(f,er)=>{listeners.push(f);emit().catch(er);return()=>{}}})};
+const localAssets={upload:async b=>{const id=uid();await IDB.put("photos",b,id);URLS[id]=URL.createObjectURL(b);return{id}},
+  delete:async id=>{await IDB.del("photos",id);if(URLS[id])URL.revokeObjectURL(URLS[id]);delete URLS[id]}};
+const localDownloads={save:async({filename,data})=>{const b=data instanceof Blob?data:new Blob([data],{type:"text/plain"});const u=URL.createObjectURL(b);const a=document.createElement("a");a.href=u;a.download=filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),60000);return{status:"saved"}}};
+
+/* backup / restore */
+const toDataUrl=b=>new Promise(r=>{const f=new FileReader();f.onload=()=>r(f.result);f.readAsDataURL(b)});
+$("#bkBtn").onclick=async()=>{
+  dlStatus("Preparing backup…");
+  try{const rows=await IDB.all("entries"),keys=await IDB.keys("photos"),photos={};
+    for(const k of keys){const b=await IDB.get("photos",k);if(b)photos[k]=await toDataUrl(b)}
+    await localDownloads.save({filename:`machine-diary-backup-${today()}.json`,data:new Blob([JSON.stringify({app:"machine-diary",version:1,exported:new Date().toISOString(),entries:rows,photos})],{type:"application/json"})});
+    dlStatus("Backup saved to your Downloads. Keep it somewhere safe, like Google Drive.");
+  }catch(e){dlStatus("Backup failed: "+(e.message||e))}
+};
+$("#rsBtn").onclick=()=>$("#rsFile").click();
+$("#rsFile").onchange=async ev=>{
+  const f=ev.target.files[0];ev.target.value="";if(!f)return;dlStatus("Restoring…");
+  try{const data=JSON.parse(await f.text());if(data.app!=="machine-diary")throw new Error("This is not a Machine Diary backup file");
+    let np=0;for(const[k,u]of Object.entries(data.photos||{})){const b=await (await fetch(u)).blob();await IDB.put("photos",b,k);if(!URLS[k])URLS[k]=URL.createObjectURL(b);np++}
+    for(const e of data.entries||[])if(e&&e.id)await IDB.put("entries",e);
+    await emit();dlStatus(`Restored ${(data.entries||[]).length} entries and ${np} photos.`);
+  }catch(e){dlStatus("Restore failed: "+(e.message||e))}
+};
+
+/* ---------- boot ---------- */
+(async()=>{
+  if(!window.indexedDB){notice("This browser cannot save data. Open the page in Chrome or Safari.");render();$("#newBtn").hidden=true;return}
+  try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
+  db=localDb;assets=localAssets;downloads=localDownloads;
+  try{for(const k of await IDB.keys("photos")){const b=await IDB.get("photos",k);if(b)URLS[k]=URL.createObjectURL(b)}}catch(e){}
+  col=db.collection("entries");
+  col.onSnapshot(snap=>{
+    entries=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:(b.createdAt||0)-(a.createdAt||0));
+    render();
+    if(current&&!$("#viewSheet").hidden){const fresh=entries.find(x=>x.id===current.id);if(fresh&&fresh.updatedAt!==current.updatedAt)openView(fresh.id)}
+  },err=>{$("#list").innerHTML=`<div class="empty"><h3>Could not load your diary</h3><p>${esc(err.message||err)}</p></div>`});
+})();
+</script>
+</body></html>
